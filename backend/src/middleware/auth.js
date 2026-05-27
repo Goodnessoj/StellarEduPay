@@ -13,16 +13,18 @@ const jwt = require('jsonwebtoken');
  * On failure: 401 (missing/invalid token) or 403 (insufficient role).
  */
 function requireAdminAuth(req, res, next) {
+  // Accept token from HttpOnly cookie (preferred) or Authorization header (fallback)
+  const cookieToken = req.cookies && req.cookies.admin_token;
   const authHeader = req.headers['authorization'];
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = cookieToken || bearerToken;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return res.status(401).json({
       error: 'Authentication required. Provide a Bearer token.',
       code: 'MISSING_AUTH_TOKEN',
     });
   }
-
-  const token = authHeader.slice(7); // strip "Bearer "
 
   try {
     const secret = process.env.JWT_SECRET;
