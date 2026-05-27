@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const StellarSdk = require('@stellar/stellar-sdk');
 const School = require('../models/schoolModel');
 const { logAudit } = require('../services/auditService');
+const { verifyStellarAccountFunding } = require('../services/stellarAccountVerificationService');
 
 function isValidTimezone(tz) {
   try {
@@ -39,6 +40,9 @@ async function createSchool(req, res, next) {
       });
     }
 
+    // Verify Stellar account funding (non-blocking)
+    const { isFunded, warning } = await verifyStellarAccountFunding(stellarAddress);
+
     const schoolId = `SCH-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const school = await School.create({
       schoolId,
@@ -64,6 +68,11 @@ async function createSchool(req, res, next) {
         ipAddress: req.auditContext.ipAddress,
         userAgent: req.auditContext.userAgent,
       });
+    }
+
+    // Return 202 with warning if account is unfunded
+    if (warning) {
+      return res.status(202).json({ ...school.toObject(), warning });
     }
 
     res.status(201).json(school);
@@ -156,6 +165,13 @@ async function updateSchool(req, res, next) {
       return next(e);
     }
 
+    // Verify Stellar account funding if address is being updated (non-blocking)
+    let warning = null;
+    if (updates.stellarAddress) {
+      const { isFunded, warning: fundingWarning } = await verifyStellarAccountFunding(updates.stellarAddress);
+      warning = fundingWarning;
+    }
+
     const school = await School.findOneAndUpdate(
       { slug: req.params.schoolSlug.toLowerCase(), isActive: true },
       updates,
@@ -175,6 +191,11 @@ async function updateSchool(req, res, next) {
         ipAddress: req.auditContext.ipAddress,
         userAgent: req.auditContext.userAgent,
       });
+    }
+
+    // Return 202 with warning if account is unfunded
+    if (warning) {
+      return res.status(202).json({ ...school.toObject(), warning });
     }
 
     res.json(school);
