@@ -182,6 +182,7 @@ connectWithRetry().then(async () => {
       logger.error('Failed to initialize retry queue system', { error: error.message });
     }
   } else {
+    logger.warn('REDIS_HOST is not configured — using MongoDB retry backend. Rate-limit counters are in-process only and will reset on restart. Set REDIS_HOST for production deployments.');
     logger.info('All services initialized successfully (MongoDB retry backend)');
   }
 });
