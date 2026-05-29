@@ -536,6 +536,8 @@ This will start:
 - Backend on port 5000
 - Frontend on port 3000
 
+For Kubernetes, a sample readiness probe is available in `deploy/k8s/backend-deployment.yaml`. It polls `/health` on port 5000 with a 30 second startup delay so traffic is only routed after the backend and MongoDB are ready.
+
 **Security Note**: MongoDB is configured with root authentication. The default credentials (root/password) should be changed in production. Generate secure passwords with:
 
 ```bash
