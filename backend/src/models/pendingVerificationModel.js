@@ -1,6 +1,7 @@
 "use strict";
 
 const mongoose = require("mongoose");
+const tenantScope = require('../plugins/tenantScope');
 
 /**
  * Stores transactions that could not be verified due to a Stellar network outage.
@@ -36,6 +37,8 @@ pendingVerificationSchema.index({ status: 1, nextRetryAt: 1 });
 pendingVerificationSchema.index({ nextRetryAt: 1, attempts: 1 });
 // Multi-school filtering by due time
 pendingVerificationSchema.index({ schoolId: 1, nextRetryAt: 1 });
+
+pendingVerificationSchema.plugin(tenantScope, { modelName: 'PendingVerification' });
 
 module.exports = mongoose.model(
   "PendingVerification",

@@ -68,12 +68,13 @@ try {
  * Uses upsert so duplicate calls for the same txHash are safe.
  */
 async function persistJob(txHash, context = {}) {
+  const schoolId = context.schoolId || 'unknown';
   await PendingVerification.findOneAndUpdate(
-    { txHash },
+    { txHash, schoolId },
     {
       $setOnInsert: {
         txHash,
-        schoolId: context.schoolId || 'unknown',
+        schoolId,
         studentId: context.studentId || null,
         correlationId: resolveCorrelationId(context.correlationId, txHash),
         status: 'pending',
@@ -87,16 +88,19 @@ async function persistJob(txHash, context = {}) {
 
 /**
  * Mark a PendingVerification document as resolved (job completed successfully).
+ * Bypass is required: the worker has txHash but not schoolId; txHash is globally unique.
  */
 async function markResolved(txHash) {
   await PendingVerification.findOneAndUpdate(
     { txHash },
-    { status: 'resolved', resolvedAt: new Date() }
+    { status: 'resolved', resolvedAt: new Date() },
+    { _bypassTenantScope: true }
   );
 }
 
 /**
  * Mark a PendingVerification document as dead_letter (permanent failure).
+ * Bypass is required: the worker has txHash but not schoolId; txHash is globally unique.
  */
 async function markDead(txHash, error) {
   await PendingVerification.findOneAndUpdate(
@@ -104,7 +108,8 @@ async function markDead(txHash, error) {
     {
       status: 'dead_letter',
       lastError: error?.message || String(error),
-    }
+    },
+    { _bypassTenantScope: true }
   );
 }
 
@@ -166,9 +171,10 @@ async function recoverPendingJobs() {
     return 0;
   }
 
+  // Startup recovery: intentionally spans all schools to re-queue unfinished jobs.
   const unresolved = await PendingVerification.find({
     status: { $in: ['pending', 'processing'] },
-  }).lean();
+  }).bypassTenantScope().lean();
 
   if (!unresolved.length) {
     logger.info('[TransactionQueue] No pending jobs to recover');
@@ -179,9 +185,10 @@ async function recoverPendingJobs() {
   for (const doc of unresolved) {
     const correlationId = resolveCorrelationId(doc.correlationId, doc.txHash);
     try {
-      // Reset processing → pending so the worker picks it up fresh
+      // Reset processing → pending so the worker picks it up fresh.
+      // schoolId is known from the fetched doc, so no bypass needed here.
       await PendingVerification.findOneAndUpdate(
-        { txHash: doc.txHash, status: 'processing' },
+        { txHash: doc.txHash, schoolId: doc.schoolId, status: 'processing' },
         { status: 'pending' }
       );
 
