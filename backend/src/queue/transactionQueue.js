@@ -26,6 +26,7 @@ const { Queue, Worker } = require('bullmq');
 const Redis = require('ioredis');
 const PendingVerification = require('../models/pendingVerificationModel');
 const logger = require('../utils/logger');
+const { resolveCorrelationId } = require('../utils/correlationId');
 
 const QUEUE_NAME = 'transaction-processing';
 
@@ -74,6 +75,7 @@ async function persistJob(txHash, context = {}) {
         txHash,
         schoolId: context.schoolId || 'unknown',
         studentId: context.studentId || null,
+        correlationId: resolveCorrelationId(context.correlationId, txHash),
         status: 'pending',
         attempts: 0,
         nextRetryAt: new Date(),
@@ -120,26 +122,30 @@ async function markDead(txHash, error) {
  * @returns {Promise<Job|null>}
  */
 async function enqueueTransaction(txHash, context = {}) {
+  const correlationId = resolveCorrelationId(context.correlationId, txHash);
+  const enrichedContext = { ...context, correlationId };
+
   // 1. Persist to MongoDB (durable, idempotent)
-  await persistJob(txHash, context);
+  await persistJob(txHash, enrichedContext);
 
   // 2. Enqueue to BullMQ (best-effort)
   if (!transactionQueue) {
-    logger.warn('[TransactionQueue] BullMQ unavailable — job persisted to MongoDB only', { txHash });
+    logger.warn('[TransactionQueue] BullMQ unavailable — job persisted to MongoDB only', { txHash, correlationId });
     return null;
   }
 
   try {
     const job = await transactionQueue.add(
       'verify-transaction',
-      { txHash, ...context },
+      { txHash, ...enrichedContext },
       { jobId: txHash } // deduplicate by txHash
     );
-    logger.info('[TransactionQueue] Enqueued transaction', { txHash, jobId: job.id });
+    logger.info('[TransactionQueue] Enqueued transaction', { txHash, correlationId, jobId: job.id });
     return job;
   } catch (err) {
     logger.warn('[TransactionQueue] Redis enqueue failed — job persisted to MongoDB only', {
       txHash,
+      correlationId,
       error: err.message,
     });
     return null;
@@ -171,6 +177,7 @@ async function recoverPendingJobs() {
 
   let recovered = 0;
   for (const doc of unresolved) {
+    const correlationId = resolveCorrelationId(doc.correlationId, doc.txHash);
     try {
       // Reset processing → pending so the worker picks it up fresh
       await PendingVerification.findOneAndUpdate(
@@ -180,13 +187,14 @@ async function recoverPendingJobs() {
 
       await transactionQueue.add(
         'verify-transaction',
-        { txHash: doc.txHash, schoolId: doc.schoolId, studentId: doc.studentId },
+        { txHash: doc.txHash, schoolId: doc.schoolId, studentId: doc.studentId, correlationId },
         { jobId: doc.txHash }
       );
       recovered++;
     } catch (err) {
       logger.error('[TransactionQueue] Failed to recover job', {
         txHash: doc.txHash,
+        correlationId,
         error: err.message,
       });
     }
@@ -209,6 +217,7 @@ async function getJobStatus(txHash) {
   return {
     jobId: job.id,
     txHash: job.data.txHash,
+    correlationId: job.data.correlationId || null,
     state,
     attemptsMade: job.attemptsMade,
     failedReason: job.failedReason || null,
@@ -233,12 +242,17 @@ function startTransactionWorker(processor) {
   });
 
   worker.on('completed', (job) =>
-    logger.info('[TransactionQueue] Job completed', { jobId: job.id, txHash: job.data.txHash })
+    logger.info('[TransactionQueue] Job completed', {
+      jobId: job.id,
+      txHash: job.data.txHash,
+      correlationId: job.data.correlationId || null,
+    })
   );
   worker.on('failed', (job, err) =>
     logger.error('[TransactionQueue] Job failed', {
       jobId: job?.id,
       txHash: job?.data?.txHash,
+      correlationId: job?.data?.correlationId || null,
       error: err.message,
     })
   );

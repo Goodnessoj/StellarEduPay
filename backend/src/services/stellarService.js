@@ -12,6 +12,7 @@ const PaymentIntent = require("../models/paymentIntentModel");
 const { validatePaymentAmount } = require("../utils/paymentLimits");
 const { withStellarRetry } = require("../utils/withStellarRetry");
 const { savePayment } = require("./transactionService");
+const { deriveCorrelationId } = require("../utils/correlationId");
 const logger = require("../utils/logger").child("StellarService");
 
 function detectAsset(payOp) {
@@ -514,6 +515,7 @@ async function syncPaymentsForSchool(school) {
         schoolId,
         studentId: intent.studentId,
         txHash: tx.hash,
+        correlationId: deriveCorrelationId(tx.hash),
         amount: paymentAmount,
         feeAmount: intent.amount,
         feeCategory: intent.feeCategory || null,
