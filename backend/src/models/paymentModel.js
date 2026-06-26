@@ -135,6 +135,20 @@ const PAYMENT_STATUS_TRANSITIONS = {
   SUBMITTED: ['FAILED'],
 };
 
+/**
+ * Additional transitions available only when an admin sets adminOverride = true
+ * on the document before calling save(). These paths are audited by the caller.
+ *
+ * SUCCESS  → REFUNDED  : admin refunds a confirmed payment
+ * DISPUTED → REFUNDED  : admin resolves a dispute via refund
+ */
+const ADMIN_PAYMENT_STATUS_TRANSITIONS = {
+  SUCCESS:   ['DISPUTED', 'REFUNDED'],
+  PENDING:   ['FAILED'],
+  SUBMITTED: ['FAILED'],
+  DISPUTED:  ['REFUNDED'],
+};
+
 paymentSchema.pre('save', function (next) {
   // Use in-memory Mongoose helpers instead of a DB query to avoid an N+1
   // round-trip on every save. this.isNew is true for inserts; for existing

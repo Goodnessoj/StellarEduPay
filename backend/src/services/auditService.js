@@ -45,6 +45,7 @@ async function logAudit({
   errorMessage = null,
   ipAddress = null,
   userAgent = null,
+  severity = null,
 }) {
   try {
     await AuditLog.create({
@@ -58,6 +59,7 @@ async function logAudit({
       errorMessage,
       ipAddress,
       userAgent,
+      ...(severity ? { severity } : {}),
     });
   } catch (err) {
     // Do NOT re-throw — audit failure must not break the primary operation
@@ -69,16 +71,27 @@ async function logAudit({
 /**
  * getAuditLogs — retrieves audit logs with filtering and pagination.
  *
+ * Supports two pagination modes:
+ *  - Cursor-based (preferred for large datasets): pass `cursor` (opaque token
+ *    from a prior response's `nextCursor`). Uses the compound index
+ *    { schoolId, createdAt } — no collection scan, O(1) seek.
+ *  - Page/offset (backward-compatible): pass `page` + `limit`. Limited to
+ *    MAX_PAGE_SIZE results; avoid large page numbers on high-volume schools.
+ *
  * @param {Object} filters
- * @param {string} filters.schoolId - Required school context
- * @param {string} filters.action - Filter by action type
+ * @param {string} filters.schoolId   - Required school context
+ * @param {string} filters.action     - Filter by action type
  * @param {string} filters.targetType - Filter by target type
- * @param {string} filters.performedBy - Filter by admin user
- * @param {Date} filters.startDate - Filter by date range (start)
- * @param {Date} filters.endDate - Filter by date range (end)
- * @param {number} filters.page - Page number (default: 1)
- * @param {number} filters.limit - Results per page (default: 50, max: 200)
+ * @param {string} filters.performedBy - Filter by actor (admin user)
+ * @param {string} filters.result     - Filter by result ('success' | 'failure')
+ * @param {Date}   filters.startDate  - Filter by date range start (ISO 8601)
+ * @param {Date}   filters.endDate    - Filter by date range end (ISO 8601)
+ * @param {string} filters.cursor     - Opaque cursor from a prior response
+ * @param {number} filters.page       - Page number for offset pagination (default: 1)
+ * @param {number} filters.limit      - Results per page (default: 50, max: 200)
  */
+const MAX_PAGE_SIZE = 200;
+
 async function getAuditLogs(filters = {}) {
   const {
     schoolId,
@@ -88,21 +101,22 @@ async function getAuditLogs(filters = {}) {
     result,
     startDate,
     endDate,
+    cursor,
     page = 1,
     limit = 50,
   } = filters;
 
-  const query = { schoolId };
+  const baseQuery = { schoolId };
 
-  if (action) query.action = action;
-  if (targetType) query.targetType = targetType;
-  if (performedBy) query.performedBy = performedBy;
-  if (result) query.result = result;
+  if (action) baseQuery.action = action;
+  if (targetType) baseQuery.targetType = targetType;
+  if (performedBy) baseQuery.performedBy = performedBy;
+  if (result) baseQuery.result = result;
 
   if (startDate || endDate) {
-    query.createdAt = {};
-    if (startDate) query.createdAt.$gte = new Date(startDate);
-    if (endDate) query.createdAt.$lte = new Date(endDate);
+    baseQuery.createdAt = {};
+    if (startDate) baseQuery.createdAt.$gte = new Date(startDate);
+    if (endDate) baseQuery.createdAt.$lte = new Date(endDate);
   }
 
   const actualLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
@@ -128,8 +142,18 @@ async function getAuditLogs(filters = {}) {
       .skip(skip)
       .limit(actualLimit)
       .lean(),
-    AuditLog.countDocuments(query),
+    AuditLog.countDocuments(baseQuery),
   ]);
+
+  const nextCursor =
+    skip + logs.length < total && logs.length > 0
+      ? Buffer.from(
+          JSON.stringify({
+            createdAt: logs[logs.length - 1].createdAt,
+            _id: logs[logs.length - 1]._id,
+          }),
+        ).toString('base64')
+      : null;
 
   return {
     logs,
@@ -137,6 +161,7 @@ async function getAuditLogs(filters = {}) {
     page: actualPage,
     limit: actualLimit,
     pages: Math.ceil(total / actualLimit) || 1,
+    nextCursor,
   };
 }
 

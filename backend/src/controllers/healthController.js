@@ -56,10 +56,6 @@ async function healthCheck(req, res) {
       ? stellarResult.value
       : { status: 'unreachable', error: stellarResult.reason?.message };
 
-  // Determine overall status:
-  // - healthy: DB is up AND Stellar is ok
-  // - degraded: DB is up BUT Stellar is unreachable
-  // - unhealthy: DB is down
   const retrySelector = require('../services/retryServiceSelector');
   const retryBackend = retrySelector.getSelectedBackend();
   const redisStatus = getRedisStatus();

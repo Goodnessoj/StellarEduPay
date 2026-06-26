@@ -10,7 +10,7 @@ const FeeStructure = require('../models/feeStructureModel');
  * @param {{ schoolId: string, startDate?: string, endDate?: string, timezone?: string }} options
  */
 async function aggregateByDate({ schoolId, startDate, endDate, timezone = 'UTC' } = {}) {
-  const match = { schoolId, status: 'SUCCESS', studentDeleted: { $ne: true } };
+  const match = { schoolId, status: 'SUCCESS', studentDeleted: { $ne: true }, deletedAt: null };
 
   if (startDate || endDate) {
     match.confirmedAt = {};
@@ -44,7 +44,7 @@ async function aggregateByDate({ schoolId, startDate, endDate, timezone = 'UTC' 
       },
     },
     { $sort: { date: 1 } },
-  ]);
+  ], { hint: { schoolId: 1, status: 1, confirmedAt: -1 } });
 
   return rows;
 }
@@ -157,16 +157,23 @@ async function generateReport({ schoolId, startDate, endDate, timezone = 'UTC' }
 }
 
 /**
- * Escape a single CSV field value.
- * Wraps the value in double-quotes if it contains a comma, double-quote, or newline.
- * Internal double-quotes are escaped by doubling them ("" per RFC 4180).
+ * Escape a single CSV field value per RFC 4180.
+ * Wraps in double-quotes when the value contains a comma, double-quote, or newline.
+ * Internal double-quotes are doubled ("").
+ * Leading formula-injection characters (=, +, -, @, tab, CR) are prefixed with
+ * a single-quote so spreadsheet apps do not evaluate them as formulas.
  *
  * @param {*} value
  * @returns {string}
  */
 function csvEscape(value) {
-  const str = String(value ?? '');
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+  let str = String(value ?? '');
+  // Neutralize CSV injection: prefix with single-quote if the value starts with
+  // a formula-trigger character.
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
