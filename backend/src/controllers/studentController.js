@@ -165,31 +165,32 @@ async function getAllStudents(req, res, next) {
 async function deleteStudent(req, res, next) {
   try {
     const { studentId } = req.params;
-    
-    // Check if student exists and is not already deleted
+
+    // The softDelete plugin auto-filters deletedAt: null, so a plain findOne
+    // already only returns active (non-deleted) students. No need for a
+    // secondary deletedAt check — if the student isn't found here, it either
+    // never existed or was already soft-deleted.
     const student = await Student.findOne({ schoolId: req.schoolId, studentId });
     if (!student) {
+      // Distinguish "already deleted" from "never existed" so callers get a
+      // clear error message rather than a generic 404.
+      const alreadyDeleted = await Student.findOne({ schoolId: req.schoolId, studentId }).includeDeleted();
+      if (alreadyDeleted) {
+        const err = new Error(`Student "${studentId}" has already been deleted`);
+        err.code = 'STUDENT_ALREADY_DELETED';
+        err.status = 409;
+        return next(err);
+      }
       const err = new Error('Student not found');
       err.code = 'NOT_FOUND';
       return next(err);
     }
 
-    // Check if student was previously soft-deleted
-    if (student.deletedAt !== null) {
-      const err = new Error(`Student "${studentId}" was previously deleted. Cannot re-register with the same ID without explicit confirmation.`);
-      err.code = 'STUDENT_PREVIOUSLY_DELETED';
-      err.status = 409;
-      return next(err);
-    }
+    // Perform soft delete — set deletedAt timestamp instead of removing the document
+    await student.softDelete();
 
-    // Perform soft delete
-    const deletedStudent = await Student.findOneAndUpdate(
-      { schoolId: req.schoolId, studentId },
-      { deletedAt: new Date() },
-      { new: true }
-    );
-
-    // Mark all associated payments as orphaned so they are excluded from reports
+    // Mark all associated payments as studentDeleted so they are excluded from
+    // live reports while remaining queryable for audit/historical access.
     const Payment = require('../models/paymentModel');
     await Payment.updateMany(
       { schoolId: req.schoolId, studentId },
@@ -198,22 +199,141 @@ async function deleteStudent(req, res, next) {
 
     del(KEYS.student(studentId));
 
-    // Audit log
-    if (req.auditContext) {
-      await logAudit({
-        schoolId: req.schoolId,
-        action: 'student_delete',
-        performedBy: req.auditContext.performedBy,
-        targetId: studentId,
-        targetType: 'student',
-        details: { name: student.name, class: student.class },
-        result: 'success',
-        ipAddress: req.auditContext.ipAddress,
-        userAgent: req.auditContext.userAgent,
-      });
+    await logAudit({
+      schoolId: req.schoolId,
+      action: 'student_delete',
+      performedBy: req.auditContext?.performedBy ?? 'unknown',
+      targetId: studentId,
+      targetType: 'student',
+      details: { name: student.name, class: student.class, deletedAt: student.deletedAt },
+      result: 'success',
+      ipAddress: req.auditContext?.ipAddress ?? null,
+      userAgent: req.auditContext?.userAgent ?? null,
+    });
+
+    res.json({ message: `Student ${studentId} soft-deleted`, deletedAt: student.deletedAt });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/students/:studentId/restore
+ *
+ * Admin-only. Reverses a soft delete — clears deletedAt on the student and
+ * clears the studentDeleted flag on all associated payments so the student and
+ * their payment history re-enter normal queries and reports.
+ *
+ * Audited: every restore is recorded in the audit log.
+ */
+async function restoreStudent(req, res, next) {
+  try {
+    const { studentId } = req.params;
+
+    // Must bypass the auto-filter to find soft-deleted documents
+    const student = await Student.findOne({ schoolId: req.schoolId, studentId }).includeDeleted();
+    if (!student) {
+      const err = new Error('Student not found');
+      err.code = 'NOT_FOUND';
+      return next(err);
     }
 
-    res.json({ message: `Student ${studentId} deleted` });
+    if (student.deletedAt === null) {
+      const err = new Error(`Student "${studentId}" is not deleted and cannot be restored`);
+      err.code = 'STUDENT_NOT_DELETED';
+      err.status = 409;
+      return next(err);
+    }
+
+    const previousDeletedAt = student.deletedAt;
+
+    // Restore the student — clears deletedAt via the softDelete utility
+    await student.restore();
+
+    // Reinstate payments so they appear in reports again
+    const Payment = require('../models/paymentModel');
+    await Payment.updateMany(
+      { schoolId: req.schoolId, studentId },
+      { studentDeleted: false },
+    );
+
+    del(KEYS.student(studentId));
+
+    await logAudit({
+      schoolId: req.schoolId,
+      action: 'student_restore',
+      performedBy: req.auditContext?.performedBy ?? 'unknown',
+      targetId: studentId,
+      targetType: 'student',
+      details: { name: student.name, class: student.class, previousDeletedAt },
+      result: 'success',
+      ipAddress: req.auditContext?.ipAddress ?? null,
+      userAgent: req.auditContext?.userAgent ?? null,
+    });
+
+    res.json({
+      message: `Student ${studentId} restored`,
+      student: {
+        studentId: student.studentId,
+        name: student.name,
+        class: student.class,
+        deletedAt: student.deletedAt,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/students/:studentId/payments/audit
+ *
+ * Admin-only. Returns the full payment history for a student regardless of
+ * whether the student has been soft-deleted. Intended for audit and financial
+ * reporting workflows where payment history must survive a student deletion.
+ */
+async function getDeletedStudentPayments(req, res, next) {
+  try {
+    const { studentId } = req.params;
+
+    // Allow lookup even if student is soft-deleted
+    const student = await Student.findOne({ schoolId: req.schoolId, studentId }).includeDeleted();
+    if (!student) {
+      const err = new Error('Student not found');
+      err.code = 'NOT_FOUND';
+      return next(err);
+    }
+
+    const Payment = require('../models/paymentModel');
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    // Include payments regardless of studentDeleted flag — this is the audit path
+    const [total, payments] = await Promise.all([
+      Payment.countDocuments({ schoolId: req.schoolId, studentId }).includeDeleted(),
+      Payment.find({ schoolId: req.schoolId, studentId })
+        .includeDeleted()
+        .sort({ confirmedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    res.json({
+      student: {
+        studentId: student.studentId,
+        name: student.name,
+        class: student.class,
+        deletedAt: student.deletedAt,
+        isDeleted: student.deletedAt !== null,
+      },
+      payments,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    });
   } catch (err) {
     next(err);
   }
@@ -843,4 +963,4 @@ async function getFeeHistory(req, res, next) {
   }
 }
 
-module.exports = { registerStudent, getAllStudents, getStudent, getPublicStudentInfo, updateStudent, deleteStudent, getPaymentSummary, bulkImportStudents, getOverdueStudents, resetPayment, reconcileStudent, parseCsvBuffer, exportStudents, getFeeHistory };
+module.exports = { registerStudent, getAllStudents, getStudent, getPublicStudentInfo, updateStudent, deleteStudent, restoreStudent, getDeletedStudentPayments, getPaymentSummary, bulkImportStudents, getOverdueStudents, resetPayment, reconcileStudent, parseCsvBuffer, exportStudents, getFeeHistory };

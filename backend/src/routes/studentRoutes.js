@@ -10,6 +10,8 @@ const {
   getPublicStudentInfo,
   updateStudent,
   deleteStudent,
+  restoreStudent,
+  getDeletedStudentPayments,
   getPaymentSummary,
   bulkImportStudents,
   getOverdueStudents,
@@ -40,8 +42,10 @@ router.get('/summary', getPaymentSummary);
 router.get('/overdue', getOverdueStudents);
 router.get('/public/:studentId', validateStudentIdParam, getPublicStudentInfo);
 router.get('/:studentId', requireAdminAuth, validateStudentIdParam, getStudent);
-router.put('/:studentId', requireAdminAuth, validateStudentIdParam, updateStudent);
-router.delete('/:studentId', requireAdminAuth, validateStudentIdParam, deleteStudent);
+router.put('/:studentId', requireAdminAuth, validateStudentIdParam, auditContext, updateStudent);
+router.delete('/:studentId', requireAdminAuth, validateStudentIdParam, auditContext, deleteStudent);
+router.post('/:studentId/restore', requireAdminAuth, validateStudentIdParam, auditContext, restoreStudent);
+router.get('/:studentId/payments/audit', requireAdminAuth, validateStudentIdParam, getDeletedStudentPayments);
 router.post('/:studentId/reset-payment', requireAdminAuth, validateStudentIdParam, resetPayment);
 router.post('/:studentId/reconcile', requireAdminAuth, validateStudentIdParam, reconcileStudent);
 router.post('/:studentId/reminders/resubscribe', requireAdminAuth, validateStudentIdParam, resubscribeReminders);
