@@ -30,7 +30,14 @@ function globalErrorHandler(err, req, res, next) {
   const statusCode = ERROR_STATUS_MAP[err.code] || err.status || err.statusCode || 500;
   const logCtx = { code: err.code, message: err.message, status: statusCode, path: req.path, method: req.method, requestId: req.requestId, schoolId: req.schoolId, stack: err.stack };
   statusCode >= 500 ? logger.error('Server error', logCtx) : logger.warn('Client error', logCtx);
-  const body = errorResponse(err.message, err.code || 'INTERNAL_ERROR', err.details || null);
+
+  // In production, never expose internal error messages or stack traces for 5xx errors.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const clientMessage = (isProduction && statusCode >= 500)
+    ? 'An internal server error occurred.'
+    : err.message;
+
+  const body = errorResponse(clientMessage, err.code || 'INTERNAL_ERROR', err.details || null);
   if (process.env.NODE_ENV === 'development' && err.stack) body.error.stack = err.stack;
   res.status(statusCode).json(body);
 }
