@@ -112,6 +112,14 @@ const MAX_PAYMENT_AMOUNT = parseFloat(
 
 // ── Concurrent Payment Processor ─────────────────────────────────────────────
 const MAX_QUEUE_DEPTH = parseInt(process.env.MAX_QUEUE_DEPTH || "1000", 10);
+const QUEUE_BACKPRESSURE_HIGH_WATER = parseInt(
+  process.env.QUEUE_BACKPRESSURE_HIGH_WATER || String(Math.ceil(MAX_QUEUE_DEPTH * 0.8)),
+  10,
+);
+const QUEUE_BACKPRESSURE_LOW_WATER = parseInt(
+  process.env.QUEUE_BACKPRESSURE_LOW_WATER || String(Math.floor(MAX_QUEUE_DEPTH * 0.5)),
+  10,
+);
 
 if (MIN_PAYMENT_AMOUNT < 0) {
   throw new Error("[Config] MIN_PAYMENT_AMOUNT must be a positive number");
@@ -201,6 +209,8 @@ const config = Object.freeze({
   MIN_PAYMENT_AMOUNT,
   MAX_PAYMENT_AMOUNT,
   MAX_QUEUE_DEPTH,
+  QUEUE_BACKPRESSURE_HIGH_WATER,
+  QUEUE_BACKPRESSURE_LOW_WATER,
   MAX_BODY_SIZE,
   REQUEST_TIMEOUT_MS,
   STELLAR_TIMEOUT_MS,
