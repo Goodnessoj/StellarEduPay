@@ -180,6 +180,14 @@ const SMTP_USER = process.env.SMTP_USER || null;
 const SMTP_PASS = process.env.SMTP_PASS || null;
 const SMTP_FROM = process.env.SMTP_FROM || "noreply@stellaredupay.com";
 
+// ── Twilio (SMS / WhatsApp) ────────────────────────────────────────────────
+// All Twilio variables are optional. When unset, smsService falls back to
+// console-log (dev mode) so the application starts without SMS credentials.
+const TWILIO_ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID  || null;
+const TWILIO_AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN   || null;
+const TWILIO_FROM_NUMBER  = process.env.TWILIO_FROM_NUMBER  || null;
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || null;
+
 // ── Freeze to prevent accidental mutation at runtime ─────────────────────────
 const config = Object.freeze({
   PORT,
@@ -215,6 +223,10 @@ const config = Object.freeze({
   SMTP_USER,
   SMTP_PASS,
   SMTP_FROM,
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN,
+  TWILIO_FROM_NUMBER,
+  TWILIO_WHATSAPP_FROM,
 });
 
 module.exports = config;

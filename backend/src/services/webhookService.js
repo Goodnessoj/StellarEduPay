@@ -141,6 +141,7 @@ async function fireWebhook(url, event, payload, secret = null, deliveryId = null
   };
 
   if (correlationId) {
+    headers['X-Correlation-ID'] = correlationId;
     headers['X-StellarEduPay-Correlation-Id'] = correlationId;
   }
 
