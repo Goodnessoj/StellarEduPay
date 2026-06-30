@@ -188,6 +188,23 @@ const schoolSchema = new mongoose.Schema(
       min: [1, 'maxStudents must be at least 1'],
     },
     /**
+     * Per-school email branding and localization fields.
+     *
+     * logoUrl        — URL to the school logo image, embedded in reminder emails.
+     * supportContact — Phone number or email for the school's support/admin contact.
+     * primaryColor   — Hex color for the email header background (e.g. '#1a56db').
+     * emailLocale    — BCP-47-style locale code for email template language.
+     *                  Supported: 'en', 'fr', 'es', 'pt', 'tpi' (Tok Pisin), 'ha' (Hausa).
+     */
+    logoUrl: { type: String, default: null },
+    supportContact: { type: String, default: null },
+    primaryColor: { type: String, default: '#1a56db' },
+    emailLocale: {
+      type: String,
+      default: 'en',
+      enum: ['en', 'fr', 'es', 'pt', 'tpi', 'ha'],
+    },
+    /**
      * MFA (TOTP) protection for school admin operations.
      * mfaSecret is AES-256-GCM encrypted; key is derived from JWT_SECRET.
      * mfaBackupCodes holds SHA-256 hashes — each code is single-use.

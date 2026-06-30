@@ -17,6 +17,15 @@ const logger = require('../utils/logger').child('TransactionPollingService');
 const { deriveCorrelationId } = require('../utils/correlationId');
 const { captureFiatSnapshot } = require('./currencyConversionService');
 
+// Metrics — imported lazily inside helpers to survive jest module resets.
+function _incFunnel(stage, schoolId) {
+  try {
+    require('../metrics').paymentFunnelTotal.inc({ stage, school_id: schoolId });
+  } catch (_) {
+    // metrics module unavailable — proceed without instrumentation
+  }
+}
+
 let pollingInterval = null;
 let isPolling = false;
 
@@ -58,6 +67,9 @@ async function processTransaction(tx, school, fencingToken) {
     return { processed: false, reason: 'duplicate' };
   }
 
+  // Funnel: transaction received by the poller
+  _incFunnel('received', schoolId);
+
   // Extract and validate payment
   const valid = await extractValidPayment(tx, stellarAddress);
   if (!valid) {
@@ -81,12 +93,18 @@ async function processTransaction(tx, school, fencingToken) {
     return { processed: false, reason: 'amount_limit_exceeded' };
   }
 
+  // Funnel: payment passed amount/memo validation
+  _incFunnel('validated', schoolId);
+
   // Find student by memo (studentId)
   const student = await Student.findOne({ schoolId, studentId: memo });
   if (!student) {
     logger.warn('Student not found for memo', { txHash: tx.hash, correlationId, schoolId, memo });
     return { processed: false, reason: 'student_not_found' };
   }
+
+  // Funnel: student matched by memo
+  _incFunnel('matched', schoolId);
 
   // Check fencing token - reject if stale (another worker has newer lock)
   const currentFence = await lock.getCurrentFence(`sync:lock:${schoolId}`);
@@ -208,7 +226,7 @@ async function processTransaction(tx, school, fencingToken) {
       feeValidationStatus: cumulativeStatus,
       status: paymentData.status,
       confirmedAt: txDate,
-    });
+    }, correlationId);
 
     logger.info('Transaction auto-detected and recorded', {
       txHash: tx.hash,

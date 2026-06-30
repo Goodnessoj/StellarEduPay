@@ -175,23 +175,33 @@ function fanout(schoolId, event, data) {
  * With Redis enabled the event is published and every replica (including this
  * one) fans out via its subscriber — so we must NOT also fan out locally here,
  * or this replica would deliver twice.
+ *
+ * @param {string} schoolId
+ * @param {string} event
+ * @param {object} data
+ * @param {string} [correlationId] - Optional correlation ID to include in the payload
  */
-function emit(schoolId, event, data) {
+function emit(schoolId, event, data, correlationId) {
+  const enrichedData = correlationId
+    ? { ...data, correlationId }
+    : data;
+
   if (publisher) {
     publisher
-      .publish(`${CHANNEL_PREFIX}${schoolId}`, JSON.stringify({ event, data }))
+      .publish(`${CHANNEL_PREFIX}${schoolId}`, JSON.stringify({ event, data: enrichedData }))
       .catch((err) => {
         // Best-effort fallback so a transient publish failure still reaches
         // clients on this replica.
         logger.error('SSE publish failed — falling back to local fanout', {
           error: err.message,
           schoolId,
+          correlationId: correlationId || enrichedData?.correlationId || null,
         });
-        fanout(schoolId, event, data);
+        fanout(schoolId, event, enrichedData);
       });
     return;
   }
-  fanout(schoolId, event, data);
+  fanout(schoolId, event, enrichedData);
 }
 
 /**
