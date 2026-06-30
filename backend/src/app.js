@@ -51,6 +51,8 @@ const { startMetricsRollupScheduler, stopMetricsRollupScheduler } = require('./s
 const { startWebhookRetryScheduler, stopWebhookRetryScheduler } = require('./services/webhookRetryScheduler');
 const { startOutboxDispatcher, stopOutboxDispatcher } = require('./services/outboxDispatcher');
 const { startReconciliationReportScheduler, stopReconciliationReportScheduler } = require('./services/reconciliationReportScheduler');
+const { startWorker: startReportQueueWorker, stopWorker: stopReportQueueWorker } = require('./services/reportQueueService');
+const { close: closeReportCacheInvalidator } = require('./services/reportCacheInvalidator');
 const { closeQueue } = require('./queue/transactionQueue');
 const bullMQRetryService = require('./services/bullMQRetryService');
 const { initializeRetryQueue, setupMonitoring } = require('./config/retryQueueSetup');
@@ -265,12 +267,13 @@ connectDatabase().then(async () => {
   leaderElection.register(startLeaderSchedulers, stopLeaderSchedulers);
   await leaderElection.start();
 
-  // Always-start services (handle concurrency internally)
-  startPolling();
-  retrySelector.start();
-  startTxQueueWorker();
-  registerPaymentSavedSubscribers();
-  startOutboxDispatcher();
+// Always-start services (handle concurrency internally)
+   startPolling();
+   retrySelector.start();
+   startTxQueueWorker();
+   registerPaymentSavedSubscribers();
+   startOutboxDispatcher();
+   startReportQueueWorker();
 
   // Only initialise BullMQ when Redis is configured
   if (retrySelector.useBullMQ()) {
