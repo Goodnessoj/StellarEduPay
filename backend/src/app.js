@@ -45,6 +45,7 @@ const { startReminderScheduler, stopReminderScheduler } = require('./services/re
 const { startWorker: startTxQueueWorker, stopWorker: stopTxQueueWorker } = require('./services/transactionQueueService');
 const { startSessionCleanupScheduler, stopSessionCleanupScheduler } = require('./services/sessionCleanupService');
 const { startReconciliationScheduler, stopReconciliationScheduler } = require('./services/reconciliationService');
+const { startStuckPaymentReconciliationScheduler, stopStuckPaymentReconciliationScheduler } = require('./services/stuckPaymentReconciliation');
 const { startAuditLogCleanupScheduler, stopAuditLogCleanupScheduler } = require('./services/auditLogCleanupService');
 const { startMetricsRollupScheduler, stopMetricsRollupScheduler } = require('./services/metricsRollupService');
 const { startWebhookRetryScheduler, stopWebhookRetryScheduler } = require('./services/webhookRetryScheduler');
@@ -269,6 +270,7 @@ connectWithRetry().then(async () => {
     startReminderScheduler();
     startSessionCleanupScheduler();
     startReconciliationScheduler();
+    startStuckPaymentReconciliationScheduler();
     startAuditLogCleanupScheduler();
     startWebhookRetryScheduler();
     startReconciliationReportScheduler();
@@ -281,6 +283,7 @@ connectWithRetry().then(async () => {
     stopReminderScheduler();
     stopSessionCleanupScheduler();
     stopReconciliationScheduler();
+    stopStuckPaymentReconciliationScheduler();
     stopAuditLogCleanupScheduler();
     stopWebhookRetryScheduler();
     stopReconciliationReportScheduler();
