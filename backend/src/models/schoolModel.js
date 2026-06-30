@@ -83,6 +83,43 @@ const schoolSchema = new mongoose.Schema(
      */
     webhookSecret:  { type: String, default: null },
     /**
+     * Per-school webhook payload field controls.
+     * Determines which fields are included in outbound webhook payloads.
+     *
+     * allowedFields: whitelist of field names sent in every delivery.
+     *   Defaults to the safe minimal set (no PII: studentId and senderAddress
+     *   are excluded unless explicitly opted in).
+     *   See utils/buildWebhookPayload.js for the full field enum and defaults.
+     */
+    webhookPayloadConfig: {
+      allowedFields: {
+        type: [String],
+        default: () => [
+          'event',
+          'txHash',
+          'transactionHash',
+          'amount',
+          'asset',
+          'assetCode',
+          'status',
+          'schoolId',
+          'ts',
+          'timestamp',
+          'correlationId',
+          'referenceCode',
+          'finalFee',
+          'feeValidationStatus',
+          'confirmedAt',
+          'ledgerSequence',
+          'reason',
+          'isSuspicious',
+          'originalTxHash',
+          'refundTxHash',
+          'refundedAt',
+        ],
+      },
+    },
+    /**
      * Multiplier threshold for flagging suspicious payments.
      * Payments deviating from expected fee by more than this multiplier are flagged.
      * E.g., multiplier=3.0 flags payments >3× or <1/3 of expected fee.

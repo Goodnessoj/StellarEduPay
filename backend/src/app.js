@@ -32,6 +32,8 @@ const feeAdjustmentRoutes = require('./routes/feeAdjustmentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const metricsRoute = require('./routes/metricsRoute');
+const webhookEndpointRoutes = require('./routes/webhookEndpointRoutes');
+const webhookDeliveryRoutes = require('./routes/webhookDeliveryRoutes');
 
 const { registerPaymentSavedSubscribers } = require('./services/paymentSavedSubscribers');
 const { startPolling, stopPolling } = require('./services/transactionPollingService');
@@ -100,7 +102,7 @@ app.use(requestLogger());
 // ── Cache-Control: no-store on auth and sensitive data routes ─────────────────
 // Prevents intermediaries (CDNs, shared proxies) from caching tokens,
 // payment data, audit logs, and other sensitive JSON responses.
-const SENSITIVE_PATH_RE = /^\/api\/(auth|payments|students|reports|audit|receipts|disputes|fee-adjustments|payment-plans|reminders)\b/;
+const SENSITIVE_PATH_RE = /^\/api\/(auth|payments|students|reports|audit|receipts|disputes|fee-adjustments|payment-plans|reminders|webhook-endpoints|webhook-deliveries)\b/;
 app.use((req, res, next) => {
   if (SENSITIVE_PATH_RE.test(req.path)) {
     res.setHeader('Cache-Control', 'no-store');
@@ -145,6 +147,8 @@ app.use('/api/receipts', receiptsRoutes);
 app.use('/api/fee-adjustments', feeAdjustmentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/webhook-endpoints', webhookEndpointRoutes);
+app.use('/api/webhook-deliveries', webhookDeliveryRoutes);
 app.get('/api/consistency', requireAdminAuth, runConsistencyCheck);
 app.get('/health', healthCheck);
 app.get('/health/live', healthLive);
