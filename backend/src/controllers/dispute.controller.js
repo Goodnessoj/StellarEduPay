@@ -2,6 +2,22 @@
 
 const Dispute = require('../models/disputeModel');
 const Payment = require('../models/paymentModel');
+const { logAudit } = require('../services/auditService');
+
+function audit(req, action, targetId, details) {
+  if (!req.auditContext) return Promise.resolve();
+  return logAudit({
+    schoolId: req.schoolId,
+    action,
+    performedBy: req.auditContext.performedBy,
+    targetId,
+    targetType: 'dispute',
+    details,
+    result: 'success',
+    ipAddress: req.auditContext.ipAddress,
+    userAgent: req.auditContext.userAgent,
+  });
+}
 
 async function flagDispute(req, res, next) {
   try {
@@ -31,6 +47,7 @@ async function flagDispute(req, res, next) {
       return res.status(409).json({ error: 'An active dispute already exists for this payment.', code: 'DISPUTE_ALREADY_EXISTS', disputeId: existing._id });
     }
     const dispute = await Dispute.create({ schoolId, txHash, studentId, raisedBy: raisedByTrimmed, reason: reasonTrimmed, status: 'open' });
+    await audit(req, 'dispute_flag', String(dispute._id), { txHash, studentId, raisedBy: raisedByTrimmed, reason: reasonTrimmed });
     res.status(201).json(dispute);
   } catch (err) { next(err); }
 }
@@ -88,6 +105,14 @@ async function resolveDispute(req, res, next) {
       { new: true }
     );
     if (!dispute) return res.status(404).json({ error: 'Dispute not found or already closed.', code: 'NOT_FOUND' });
+    await audit(req, 'dispute_resolve', String(dispute._id), {
+      txHash: dispute.txHash,
+      studentId: dispute.studentId,
+      previousStatus: 'open_or_under_review',
+      newStatus,
+      resolvedBy,
+      resolutionNote: resolutionNoteTrimmed,
+    });
     res.json(dispute);
   } catch (err) { next(err); }
 }
